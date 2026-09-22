@@ -1,8 +1,9 @@
 import { PassThrough } from "node:stream";
-import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { parseSetupArgs, runSetup, type RunSetupDeps } from "../../src/cli/setup.js";
 
-const endpoint = "https://whoop-mcp-telemetry.whoop-ai-mcp.workers.dev/events";
+// A user-operated collector. This fork ships without a default endpoint.
+const endpoint = "https://telemetry.example.com/events";
 
 function fixture(interactive = true): {
   files: Map<string, string>;
@@ -35,7 +36,30 @@ function fixture(interactive = true): {
   return { files, deps: { io: { input, output }, fs, confirmTelemetry }, chunks };
 }
 
+describe("setup telemetry without a configured endpoint", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("never prompts and leaves telemetry off", async () => {
+    vi.stubEnv("WHOOP_MCP_TELEMETRY_ENDPOINT", "");
+    const test = fixture();
+    test.files.set(
+      "/config",
+      JSON.stringify({
+        mcpServers: {
+          whoop: { command: "node", env: { WHOOP_CLIENT_ID: "id", WHOOP_CLIENT_SECRET: "s" } },
+        },
+      })
+    );
+    const result = await runSetup({ client: "claude-desktop", configPath: "/config" }, test.deps);
+
+    expect(result.WHOOP_MCP_TELEMETRY).toBe("0");
+    expect(test.deps.confirmTelemetry).not.toHaveBeenCalled();
+    expect(test.files.get("/config")).not.toContain("WHOOP_MCP_TELEMETRY_ENDPOINT");
+  });
+});
+
 describe("setup telemetry consent", () => {
+  beforeEach(() => vi.stubEnv("WHOOP_MCP_TELEMETRY_ENDPOINT", endpoint));
   afterEach(() => vi.unstubAllEnvs());
 
   it.each(["DO_NOT_TRACK", "WHOOP_MCP_PRIVACY_MODE", "WHOOP_MCP_TELEMETRY"])(
@@ -162,7 +186,7 @@ describe("setup telemetry consent", () => {
         mcpServers: {
           whoop: {
             command: "npx",
-            args: ["-y", "whoop-ai-mcp"],
+            args: ["-y", "github:dssolutions-mx/whoop-mcp-resilient"],
             env: {
               WHOOP_CLIENT_ID: "old",
               WHOOP_CLIENT_SECRET: "old",

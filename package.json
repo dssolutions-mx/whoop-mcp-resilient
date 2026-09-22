@@ -1,13 +1,13 @@
 {
-  "name": "whoop-ai-mcp",
-  "version": "0.8.2",
-  "mcpName": "io.github.shashankswe2020-ux/whoop",
-  "description": "MCP server wrapping the WHOOP REST API for AI assistant access to health and fitness data",
+  "name": "whoop-mcp-resilient",
+  "version": "1.0.0",
+  "mcpName": "io.github.dssolutions-mx/whoop-mcp-resilient",
+  "description": "Resilient MCP server for WHOOP health data: retries WHOOP outages, race-safe token refresh, natural-language dates and compact output. Fork of whoop-ai-mcp.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "whoop-ai-mcp": "dist/index.js"
+    "whoop-mcp-resilient": "dist/index.js"
   },
   "files": [
     "dist"
@@ -22,7 +22,8 @@
     "lint:fix": "eslint src/ tests/ --fix",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepare": "tsc"
   },
   "keywords": [
     "whoop",
@@ -35,15 +36,15 @@
     "ai",
     "claude"
   ],
-  "author": "Shashank Mishra",
+  "author": "Juan Jose Aguirre",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shashankswe2020-ux/whoop-mcp.git"
+    "url": "git+https://github.com/dssolutions-mx/whoop-mcp-resilient.git"
   },
-  "homepage": "https://github.com/shashankswe2020-ux/whoop-mcp#readme",
+  "homepage": "https://github.com/dssolutions-mx/whoop-mcp-resilient#readme",
   "bugs": {
-    "url": "https://github.com/shashankswe2020-ux/whoop-mcp/issues"
+    "url": "https://github.com/dssolutions-mx/whoop-mcp-resilient/issues"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -63,5 +64,8 @@
     "tsx": "^4.19.4",
     "typescript": "~5.8.3",
     "vitest": "^4.1.11"
-  }
+  },
+  "contributors": [
+    "Shashank Mishra (original whoop-ai-mcp, https://github.com/shashankswe2020-ux/whoop-mcp)"
+  ]
 }

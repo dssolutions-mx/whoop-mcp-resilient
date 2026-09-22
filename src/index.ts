@@ -47,7 +47,7 @@ function getRequiredEnv(name: string): string {
     throw new Error(
       `Missing required environment variable: ${name}.\n` +
         `Set it in your Claude Desktop config or shell environment.\n` +
-        `See: https://github.com/shashankswe2020-ux/whoop-mcp#configuration`
+        `See: https://github.com/dssolutions-mx/whoop-mcp-resilient#setup`
     );
   }
   return value;
@@ -350,7 +350,7 @@ export async function runCli(args: string[] = process.argv.slice(2)): Promise<nu
   );
   if (subcommand === "telemetry") {
     if (args.length !== 2 || args[1] !== "status") {
-      console.error("Usage: whoop-ai-mcp telemetry status");
+      console.error("Usage: whoop-mcp-resilient telemetry status");
       return 1;
     }
     process.stdout.write(`${JSON.stringify(telemetry.status)}\n`);

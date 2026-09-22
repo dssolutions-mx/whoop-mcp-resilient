@@ -67,12 +67,12 @@ const SERVER_NAME = "whoop";
 
 /**
  * Build the server entry for Claude Desktop's `mcpServers` map.
- * Uses `npx -y whoop-ai-mcp` so users don't need a global install.
+ * Uses `npx -y github:dssolutions-mx/whoop-mcp-resilient` so users don't need a global install.
  */
 export function generateClaudeDesktopEntry(env: ServerEnv): ClaudeDesktopServerEntry {
   return {
     command: "npx",
-    args: ["-y", "whoop-ai-mcp"],
+    args: ["-y", "github:dssolutions-mx/whoop-mcp-resilient"],
     env: {
       WHOOP_CLIENT_ID: env.WHOOP_CLIENT_ID,
       WHOOP_CLIENT_SECRET: env.WHOOP_CLIENT_SECRET,
@@ -106,7 +106,7 @@ export function generateClaudeCodeCommand(env: ServerEnv): string {
   const id = shellQuote(env.WHOOP_CLIENT_ID);
   const secret = shellQuote(env.WHOOP_CLIENT_SECRET);
   const telemetry = telemetryFlags(env, "-e");
-  return `claude mcp add ${SERVER_NAME} -e WHOOP_CLIENT_ID=${id} -e WHOOP_CLIENT_SECRET=${secret}${telemetry} -- npx -y whoop-ai-mcp`;
+  return `claude mcp add ${SERVER_NAME} -e WHOOP_CLIENT_ID=${id} -e WHOOP_CLIENT_SECRET=${secret}${telemetry} -- npx -y github:dssolutions-mx/whoop-mcp-resilient`;
 }
 
 /**
@@ -117,7 +117,7 @@ export function generateClaudeCodeCommand(env: ServerEnv): string {
 export function generateCodexCommand(env: ServerEnv): string {
   const id = shellQuote(env.WHOOP_CLIENT_ID);
   const secret = shellQuote(env.WHOOP_CLIENT_SECRET);
-  return `codex mcp add ${SERVER_NAME} --env WHOOP_CLIENT_ID=${id} --env WHOOP_CLIENT_SECRET=${secret}${telemetryFlags(env, "--env")} -- npx -y whoop-ai-mcp`;
+  return `codex mcp add ${SERVER_NAME} --env WHOOP_CLIENT_ID=${id} --env WHOOP_CLIENT_SECRET=${secret}${telemetryFlags(env, "--env")} -- npx -y github:dssolutions-mx/whoop-mcp-resilient`;
 }
 
 /**
@@ -129,7 +129,7 @@ export function generateCopilotCommand(env: ServerEnv): string {
   const payload = JSON.stringify({
     name: SERVER_NAME,
     command: "npx",
-    args: ["-y", "whoop-ai-mcp"],
+    args: ["-y", "github:dssolutions-mx/whoop-mcp-resilient"],
     env: {
       WHOOP_CLIENT_ID: env.WHOOP_CLIENT_ID,
       WHOOP_CLIENT_SECRET: env.WHOOP_CLIENT_SECRET,

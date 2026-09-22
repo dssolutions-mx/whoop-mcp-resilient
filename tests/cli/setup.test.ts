@@ -39,7 +39,7 @@ describe("generateClaudeDesktopEntry", () => {
     });
     expect(entry).toEqual({
       command: "npx",
-      args: ["-y", "whoop-ai-mcp"],
+      args: ["-y", "github:dssolutions-mx/whoop-mcp-resilient"],
       env: { WHOOP_CLIENT_ID: "id-123", WHOOP_CLIENT_SECRET: "secret-xyz" },
     });
   });
@@ -96,7 +96,7 @@ describe("generateClaudeCodeCommand", () => {
       WHOOP_CLIENT_SECRET: "secret-xyz",
     });
     expect(cmd).toContain("claude mcp add whoop");
-    expect(cmd).toContain("npx -y whoop-ai-mcp");
+    expect(cmd).toContain("npx -y github:dssolutions-mx/whoop-mcp-resilient");
     expect(cmd).toContain("-e WHOOP_CLIENT_ID='id-123'");
     expect(cmd).toContain("-e WHOOP_CLIENT_SECRET='secret-xyz'");
   });
@@ -117,7 +117,7 @@ describe("generateCodexCommand", () => {
       WHOOP_CLIENT_SECRET: "secret-xyz",
     });
     expect(cmd).toContain("codex mcp add whoop");
-    expect(cmd).toContain("-- npx -y whoop-ai-mcp");
+    expect(cmd).toContain("-- npx -y github:dssolutions-mx/whoop-mcp-resilient");
     expect(cmd).toContain("--env WHOOP_CLIENT_ID='id-123'");
     expect(cmd).toContain("--env WHOOP_CLIENT_SECRET='secret-xyz'");
   });
@@ -151,7 +151,7 @@ describe("generateCopilotCommand", () => {
     };
     expect(parsed.name).toBe("whoop");
     expect(parsed.command).toBe("npx");
-    expect(parsed.args).toEqual(["-y", "whoop-ai-mcp"]);
+    expect(parsed.args).toEqual(["-y", "github:dssolutions-mx/whoop-mcp-resilient"]);
     expect(parsed.env.WHOOP_CLIENT_ID).toBe("id-123");
     expect(parsed.env.WHOOP_CLIENT_SECRET).toBe("secret-xyz");
   });
@@ -494,7 +494,7 @@ describe("runSetup — non-interactive", () => {
       mcpServers: {
         whoop: {
           command: "npx",
-          args: ["-y", "whoop-ai-mcp"],
+          args: ["-y", "github:dssolutions-mx/whoop-mcp-resilient"],
           env: { WHOOP_CLIENT_ID: "existing-id", WHOOP_CLIENT_SECRET: "existing-secret" },
         },
       },
@@ -529,7 +529,7 @@ describe("runSetup — non-interactive", () => {
       mcpServers: {
         whoop: {
           command: "npx",
-          args: ["-y", "whoop-ai-mcp"],
+          args: ["-y", "github:dssolutions-mx/whoop-mcp-resilient"],
           env: { WHOOP_CLIENT_ID: "existing-id", WHOOP_CLIENT_SECRET: "existing-secret" },
         },
       },
@@ -557,7 +557,7 @@ describe("runSetup — non-interactive", () => {
       mcpServers: {
         whoop: {
           command: "npx",
-          args: ["-y", "whoop-ai-mcp"],
+          args: ["-y", "github:dssolutions-mx/whoop-mcp-resilient"],
           env: { WHOOP_CLIENT_ID: "old-id", WHOOP_CLIENT_SECRET: "old-secret" },
         },
       },

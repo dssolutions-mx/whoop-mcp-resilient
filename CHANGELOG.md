@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-22 (whoop-mcp-resilient)
+
+First release of this fork, based on whoop-ai-mcp v0.8.2 by Shashank Mishra.
+
+### Fixed
+- Retry HTTP 5xx responses and network errors/timeouts with jittered
+  exponential backoff (previously only 429 was retried).
+- Token refresh is single-flight, adopts a newer token saved by another
+  process, recovers from a lost refresh-token rotation race, and writes
+  `tokens.json` atomically.
+- Output contracts accept `null` workout distance/altitude (no GPS) and
+  `next_token: null` (last page); pagination no longer reports that as
+  truncation.
+- Date-only ISO values expand to the full UTC day (WHOOP v2 returns 404 for
+  date-only start/end).
+- `compare_periods` accepts relative date expressions.
+- Clear, safe error messages for outages, rate limits, auth and invalid dates;
+  `get_today` surfaces the real underlying error.
+
+### Changed
+- Tool and resource results are compact JSON (~28% fewer tokens).
+- No default telemetry endpoint; telemetry is only offered when the user
+  configures their own collector.
+- Package renamed to `whoop-mcp-resilient`; setup-generated configs install
+  this repository. Removed the upstream website, private dashboard collector
+  and publish workflows.
+
 ## [0.8.2] - 2026-09-21
 
 ### Added

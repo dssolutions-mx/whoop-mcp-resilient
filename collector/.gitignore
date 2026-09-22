@@ -1,8 +1,0 @@
-node_modules/
-build/
-.wrangler/
-.dev.vars*
-.env*
-worker-configuration.d.ts
-wrangler.production.json
-wrangler.dashboard.production.json

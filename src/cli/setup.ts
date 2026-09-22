@@ -570,10 +570,11 @@ async function chooseTelemetry(
   deps: Required<Omit<RunSetupDeps, "io">> & { io: PromptIO },
   existing?: ServerEnv
 ): Promise<Partial<ServerEnv>> {
+  // No built-in collector: this fork does not phone home anywhere by default.
+  // Telemetry is only offered when the user configures their own endpoint.
   const endpoint =
-    existing?.WHOOP_MCP_TELEMETRY_ENDPOINT ??
-    process.env.WHOOP_MCP_TELEMETRY_ENDPOINT ??
-    "https://whoop-mcp-telemetry.whoop-ai-mcp.workers.dev/events";
+    existing?.WHOOP_MCP_TELEMETRY_ENDPOINT ?? process.env.WHOOP_MCP_TELEMETRY_ENDPOINT;
+  if (!endpoint) return { WHOOP_MCP_TELEMETRY: "0" };
   const suppressed =
     process.env.DO_NOT_TRACK === "1" ||
     existing?.DO_NOT_TRACK === "1" ||

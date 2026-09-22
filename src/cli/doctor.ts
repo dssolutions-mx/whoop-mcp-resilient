@@ -44,7 +44,7 @@ export async function runDoctor(
   }
 ): Promise<number> {
   if (args.length > 1 || args.some((arg) => arg !== "--json")) {
-    dependencies.write("Usage: whoop-ai-mcp doctor [--json]");
+    dependencies.write("Usage: whoop-mcp-resilient doctor [--json]");
     return 2;
   }
   const { env } = dependencies;

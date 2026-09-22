@@ -12,8 +12,8 @@
 
 If you discover a security vulnerability in `whoop-mcp`, please report it privately:
 
-1. Go to **[Security Advisories](https://github.com/shashankswe2020-ux/whoop-mcp/security/advisories/new)** and open a new draft advisory.
-2. Alternatively, email the maintainer directly — contact details are on the [GitHub profile](https://github.com/shashankswe2020-ux).
+1. Go to **[Security Advisories](https://github.com/dssolutions-mx/whoop-mcp-resilient/security/advisories/new)** and open a new draft advisory.
+2. Alternatively, email the maintainer directly — contact details are on the [GitHub profile](https://github.com/dssolutions-mx).
 
 Please include:
 - A description of the vulnerability and its potential impact

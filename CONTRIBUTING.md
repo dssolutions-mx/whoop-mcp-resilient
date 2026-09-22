@@ -5,7 +5,7 @@ Thanks for your interest in contributing! This guide covers the development setu
 ## Development Setup
 
 ```bash
-git clone https://github.com/shashankswe2020-ux/whoop-mcp.git
+git clone https://github.com/dssolutions-mx/whoop-mcp-resilient.git
 cd whoop-mcp
 npm install
 ```
