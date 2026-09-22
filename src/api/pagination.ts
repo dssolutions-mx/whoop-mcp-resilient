@@ -120,7 +120,8 @@ export async function fetchAllPages<T>(
 
     // Check if we've hit maxRecords exactly
     if (allRecords.length >= maxRecords) {
-      const truncated = response.next_token !== undefined;
+      // WHOOP sends next_token: null on the last page, so test for a real token.
+      const truncated = Boolean(response.next_token);
       return { records: allRecords, truncated };
     }
 

@@ -104,9 +104,11 @@ export const workoutRecordSchema = z
           zone_four_milli: nonnegative,
           zone_five_milli: nonnegative,
         }),
-        distance_meter: z.number().finite().optional(),
-        altitude_gain_meter: z.number().finite().optional(),
-        altitude_change_meter: z.number().finite().optional(),
+        // WHOOP sends null (not an absent key) for workouts without GPS, such as
+        // swimming, climbing or gym sessions.
+        distance_meter: z.number().finite().nullish(),
+        altitude_gain_meter: z.number().finite().nullish(),
+        altitude_change_meter: z.number().finite().nullish(),
       })
       .nullish(),
   })

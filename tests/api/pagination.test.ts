@@ -121,6 +121,17 @@ describe("fetchAllPages", () => {
   // maxRecords cap
   // -------------------------------------------------------------------------
 
+  it("treats next_token: null (WHOOP's last page) as not truncated", async () => {
+    const { client } = createMockClient([
+      { records: makeRecords(1, 10), next_token: null as unknown as string },
+    ]);
+
+    const result = await fetchAllPages<MockRecord>(client, "/v2/recovery", { maxRecords: 10 });
+
+    expect(result.records).toHaveLength(10);
+    expect(result.truncated).toBe(false);
+  });
+
   it("stops when maxRecords is reached and returns truncated=true", async () => {
     const { client, getMock } = createMockClient([
       { records: makeRecords(1, 10), next_token: "token_2" },
