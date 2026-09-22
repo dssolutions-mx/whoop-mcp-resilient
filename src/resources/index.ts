@@ -130,7 +130,7 @@ export function registerResources(server: McpServer, client: WhoopClient): void 
               {
                 uri: uri.href,
                 mimeType: def.mimeType,
-                text: JSON.stringify(data, null, 2),
+                text: JSON.stringify(data),
               },
             ],
           };

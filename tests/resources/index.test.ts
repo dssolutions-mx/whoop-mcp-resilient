@@ -203,7 +203,7 @@ describe("registerResources", () => {
         {
           uri: "whoop://v2/user/recovery/latest",
           mimeType: "application/json",
-          text: JSON.stringify({ recovery_score: 85 }, null, 2),
+          text: JSON.stringify({ recovery_score: 85 }),
         },
       ],
     });
