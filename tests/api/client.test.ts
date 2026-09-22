@@ -1010,6 +1010,43 @@ describe("createWhoopClient — logger integration", () => {
     vi.useRealTimers();
   });
 
+  it("reuses a token a parallel request already refreshed instead of refreshing again", async () => {
+    const onTokenRefresh = vi.fn().mockResolvedValue("new_token");
+    const unauthorized = (): Response =>
+      ({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        headers: new Headers(),
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve("{}"),
+      }) as unknown as Response;
+    const ok = (data: unknown): Response =>
+      ({ ok: true, status: 200, json: () => Promise.resolve(data) }) as unknown as Response;
+    let releaseB!: (response: Response) => void;
+    mockFetch
+      .mockResolvedValueOnce(unauthorized()) // request A, initial
+      .mockReturnValueOnce(new Promise<Response>((resolve) => (releaseB = resolve))) // request B, initial
+      .mockResolvedValueOnce(ok({ a: 1 })) // request A, retry after refresh
+      .mockResolvedValueOnce(ok({ b: 2 })); // request B, retry with A's token
+
+    const client = createWhoopClient({
+      accessToken: TEST_TOKEN,
+      baseUrl: TEST_BASE_URL,
+      onTokenRefresh,
+    });
+    const a = client.get("/a");
+    const b = client.get("/b");
+
+    await expect(a).resolves.toEqual({ a: 1 });
+    releaseB(unauthorized());
+    await expect(b).resolves.toEqual({ b: 2 });
+
+    expect(onTokenRefresh).toHaveBeenCalledTimes(1);
+    const lastCall = mockFetch.mock.calls[3] as [string, RequestInit];
+    expect((lastCall[1].headers as Record<string, string>).Authorization).toBe("Bearer new_token");
+  });
+
   it("logs at info level when token is refreshed after 401", async () => {
     const onTokenRefresh = vi.fn().mockResolvedValue("new_token");
     mockFetch

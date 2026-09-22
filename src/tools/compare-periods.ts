@@ -13,7 +13,7 @@ import type { WhoopClient } from "../api/client.js";
 import { fetchAllPages } from "../api/pagination.js";
 import { ENDPOINT_RECOVERY, ENDPOINT_SLEEP, ENDPOINT_CYCLE } from "../api/endpoints.js";
 import type { Recovery, Sleep, Cycle } from "../api/types.js";
-import { validateDateRange, InvalidDateExpression } from "./date-utils.js";
+import { validateDateRange, InvalidDateExpression, resolveDateExpression } from "./date-utils.js";
 import { mean } from "./stats-utils.js";
 
 // ---------------------------------------------------------------------------
@@ -150,7 +150,13 @@ export async function comparePeriods(
   client: WhoopClient,
   params: ComparePeriodsParams
 ): Promise<PeriodComparison> {
-  const { period_a_start, period_a_end, period_b_start, period_b_end } = params;
+  // Accept the same relative expressions as the collection tools ("last week",
+  // "yesterday", "2026-07"). A start boundary takes the resolved range's start;
+  // an end boundary takes its end.
+  const period_a_start = resolveDateExpression(params.period_a_start).start;
+  const period_a_end = resolveDateExpression(params.period_a_end).end;
+  const period_b_start = resolveDateExpression(params.period_b_start).start;
+  const period_b_end = resolveDateExpression(params.period_b_end).end;
 
   // Validate period lengths (max 90 days each)
   validateDateRange(period_a_start, period_a_end, MAX_PERIOD_DAYS);

@@ -20,7 +20,7 @@ import {
   ENDPOINT_CYCLE,
 } from "../api/endpoints.js";
 import { DYNAMIC_TTL_MS, CYCLE_TTL_MS } from "../resources/index.js";
-import { WhoopNetworkError } from "../api/client.js";
+import { WhoopApiError, WhoopAuthError, WhoopNetworkError } from "../api/client.js";
 import {
   cycleRecordSchema,
   recoveryRecordSchema,
@@ -163,6 +163,19 @@ export async function getToday(
   const allPrimaryFailed = primaryResults.every((r) => r.status === "rejected");
 
   if (allPrimaryFailed) {
+    // Surface the real cause (a 5xx outage, an expired token, a network drop)
+    // so the caller gets an accurate message instead of a generic one.
+    const cause = primaryResults
+      .map((r) => (r.status === "rejected" ? (r.reason as unknown) : undefined))
+      .find(
+        (reason) =>
+          reason instanceof WhoopApiError ||
+          reason instanceof WhoopAuthError ||
+          reason instanceof WhoopNetworkError
+      );
+    if (cause) {
+      throw cause;
+    }
     throw new WhoopNetworkError(
       "All API calls failed. Unable to retrieve today's health snapshot."
     );

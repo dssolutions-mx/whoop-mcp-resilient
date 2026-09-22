@@ -135,8 +135,13 @@ export function resolveDateExpression(expression: string, now: Date = new Date()
     throw new InvalidDateExpression("Unrecognized date expression: empty string");
   }
 
-  // ISO 8601 pass-through
+  // ISO 8601. A bare calendar date (YYYY-MM-DD) expands to that whole UTC day,
+  // because the WHOOP v2 API answers 404 to date-only start/end values.
+  // A value that already carries a time component passes through unchanged.
   if (ISO_8601_REGEX.test(trimmed)) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return { start: `${trimmed}T00:00:00.000Z`, end: `${trimmed}T23:59:59.999Z` };
+    }
     return { start: trimmed, end: trimmed };
   }
 

@@ -25,7 +25,7 @@ import { getToday } from "./tools/get-today.js";
 import { getCalendar } from "./tools/get-calendar.js";
 import { registerResources } from "./resources/index.js";
 import { registerPrompts } from "./prompts/index.js";
-import { ISO_8601_REGEX } from "./tools/date-utils.js";
+import { InvalidDateExpression } from "./tools/date-utils.js";
 import { readFileSync } from "node:fs";
 import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { getBaselines, baselinesInputSchema } from "./tools/get-baselines.js";
@@ -75,11 +75,6 @@ const numericIdSchema = z.object({
   id: z.number().int().positive().describe("The record ID to look up."),
 });
 
-/** Reusable ISO 8601 date/datetime string with schema-level validation */
-const isoDateString = z
-  .string()
-  .regex(ISO_8601_REGEX, "Expected ISO 8601 date in YYYY-MM-DD or full datetime format.");
-
 /** Input schema shared by all collection endpoints (recovery, sleep, workout, cycle) */
 const collectionInputSchema = z.object({
   start: z
@@ -128,7 +123,12 @@ function errorResponse(error: unknown): {
   let message: string;
 
   if (error instanceof WhoopApiError) {
-    message = `WHOOP API returned ${error.statusCode}. Retry later or verify authorization.`;
+    // WhoopApiError messages carry only the status code and a fixed
+    // explanation (never the response body), so they are safe to surface.
+    message = error.message;
+  } else if (error instanceof InvalidDateExpression) {
+    // Echoes only the caller's own input, so the model can correct the call.
+    message = `${error.message}. Use ISO 8601 (YYYY-MM-DD) or a relative expression such as "today", "yesterday", "last 7 days", "this week" or "last month".`;
   } else if (error instanceof WhoopAuthError) {
     message = "WHOOP authentication failed. Run setup --verify to reconnect.";
   } else if (error instanceof WhoopNetworkError) {
@@ -168,7 +168,13 @@ function classifyToolError(error: unknown): ToolErrorCategory {
     return error.statusCode >= 500 ? "api_server" : "api_client";
   }
   if (error instanceof WhoopNetworkError) return "network";
-  if (error instanceof z.ZodError || error instanceof RangeError) return "invalid_data";
+  if (
+    error instanceof z.ZodError ||
+    error instanceof RangeError ||
+    error instanceof InvalidDateExpression
+  ) {
+    return "invalid_data";
+  }
   return "unexpected";
 }
 
@@ -438,10 +444,24 @@ export function createWhoopServer(client: WhoopClient, options?: CreateServerOpt
       description:
         "Compare health metrics between two time periods — shows improvement or regression in recovery, sleep, and strain.",
       inputSchema: z.object({
-        period_a_start: isoDateString.describe("ISO 8601 start of the first period."),
-        period_a_end: isoDateString.describe("ISO 8601 end of the first period."),
-        period_b_start: isoDateString.describe("ISO 8601 start of the second period."),
-        period_b_end: isoDateString.describe("ISO 8601 end of the second period."),
+        period_a_start: z
+          .string()
+          .min(1)
+          .describe(
+            'Start of the first period. ISO 8601 or relative expression ("last week", "yesterday", "2026-07").'
+          ),
+        period_a_end: z
+          .string()
+          .min(1)
+          .describe("End of the first period. ISO 8601 or relative expression."),
+        period_b_start: z
+          .string()
+          .min(1)
+          .describe('Start of the second period. ISO 8601 or relative expression ("this week").'),
+        period_b_end: z
+          .string()
+          .min(1)
+          .describe("End of the second period. ISO 8601 or relative expression."),
       }),
       annotations: { readOnlyHint: true },
     },

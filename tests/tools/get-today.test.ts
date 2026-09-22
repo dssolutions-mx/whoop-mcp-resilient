@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { WhoopClient } from "../../src/api/client.js";
-import { WhoopNetworkError } from "../../src/api/client.js";
+import { WhoopApiError, WhoopNetworkError } from "../../src/api/client.js";
 import { getToday } from "../../src/tools/get-today.js";
 import type { Recovery, Sleep, Cycle, Workout } from "../../src/api/types.js";
 
@@ -421,6 +421,18 @@ describe("getToday", () => {
     });
 
     await expect(getToday(client)).rejects.toBeInstanceOf(WhoopNetworkError);
+  });
+
+  it("surfaces the real WHOOP error when every primary endpoint fails", async () => {
+    const outage = new WhoopApiError(500, "Internal Server Error", null);
+    const client = createMockClient({
+      "/v2/recovery": outage,
+      "/v2/activity/sleep": new WhoopApiError(500, "Internal Server Error", null),
+      "/v2/cycle": new WhoopApiError(500, "Internal Server Error", null),
+      "/v2/activity/workout": new WhoopApiError(500, "Internal Server Error", null),
+    });
+
+    await expect(getToday(client)).rejects.toBe(outage);
   });
 
   it("throws when all 3 primary endpoints fail (even if workout succeeds)", async () => {

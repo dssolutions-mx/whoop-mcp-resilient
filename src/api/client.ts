@@ -307,7 +307,12 @@ export function createWhoopClient(options: WhoopClientOptions): WhoopClient {
         const retryAfterMs = parseRetryAfter(response);
         logger?.warn(
           response.status === 429 ? "whoop api rate limited" : "whoop api server error",
-          logExtras({ url, attempt, status: response.status, retryAfterMs: retryAfterMs ?? undefined })
+          logExtras({
+            url,
+            attempt,
+            status: response.status,
+            retryAfterMs: retryAfterMs ?? undefined,
+          })
         );
         lastError = apiError;
         lastResponse = response;

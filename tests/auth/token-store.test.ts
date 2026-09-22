@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { stat, rm, readFile, chmod } from "node:fs/promises";
+import { stat, rm, readFile, chmod, readdir } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -121,6 +121,16 @@ describe("saveTokens", () => {
     expires_at: Date.now() + 3600_000,
     token_type: "Bearer",
   };
+
+  it("writes atomically and leaves no temporary files behind", async () => {
+    await saveTokens(sampleTokens, tempDir);
+    await saveTokens({ ...sampleTokens, access_token: "access_second" }, tempDir);
+
+    const files = await readdir(tempDir);
+    expect(files).toEqual(["tokens.json"]);
+    const raw = await readFile(join(tempDir, "tokens.json"), "utf-8");
+    expect((JSON.parse(raw) as OAuthTokens).access_token).toBe("access_second");
+  });
 
   it("writes valid JSON to the token file", async () => {
     await saveTokens(sampleTokens, tempDir);

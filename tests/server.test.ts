@@ -380,26 +380,24 @@ describe("createWhoopServer", () => {
       expect(content[0].text).not.toMatch(/Expected ISO 8601/);
     });
 
-    it("rejects malformed compare_periods date input at schema level", async () => {
+    it("rejects unparseable compare_periods date input with a correctable message", async () => {
       const result = await client.callTool({
         name: "compare_periods",
         arguments: { ...validInput, period_a_start: "not-a-date" },
       });
       expect(result.isError).toBe(true);
       const content = result.content as Array<{ type: string; text: string }>;
-      expect(content[0].text).toMatch(/Expected ISO 8601/);
-      expect(content[0].text).toMatch(/period_a_start/);
+      expect(content[0].text).toMatch(/not-a-date/);
+      expect(content[0].text).toMatch(/last 7 days/);
     });
 
-    it("rejects relative date expressions at schema level (compare_periods requires explicit ISO)", async () => {
+    it("accepts relative date expressions, like the collection tools do", async () => {
       const result = await client.callTool({
         name: "compare_periods",
-        arguments: { ...validInput, period_b_end: "last 7 days" },
+        arguments: { ...validInput, period_b_start: "last week", period_b_end: "yesterday" },
       });
-      expect(result.isError).toBe(true);
       const content = result.content as Array<{ type: string; text: string }>;
-      expect(content[0].text).toMatch(/Expected ISO 8601/);
-      expect(content[0].text).toMatch(/period_b_end/);
+      expect(content[0].text).not.toMatch(/Expected ISO 8601/);
     });
   });
 
@@ -645,7 +643,7 @@ describe("createWhoopServer (error handling)", () => {
       const content = result.content as Array<{ type: string; text: string }>;
       expect(content[0].text).toContain("403");
       expect(content[0].text).not.toContain("No access");
-      expect(content[0].text).toContain("WHOOP API returned");
+      expect(content[0].text).toContain("WHOOP API error");
     } finally {
       await cleanup();
     }
@@ -725,7 +723,7 @@ describe("createWhoopServer (error handling)", () => {
       expect(result.isError).toBe(true);
       const content = result.content as Array<{ type: string; text: string }>;
       expect(content[0].text).toContain("503");
-      expect(content[0].text).toContain("Retry later");
+      expect(content[0].text).toContain("temporarily unavailable");
       expect(content[0].text).not.toContain("plain text error body");
     } finally {
       await cleanup();

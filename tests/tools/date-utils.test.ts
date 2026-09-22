@@ -61,10 +61,13 @@ describe("resolveDateExpression", () => {
     expect(result).toEqual({ start: iso, end: iso });
   });
 
-  it("passes through ISO 8601 date-only strings unchanged", () => {
-    const iso = "2026-01-15";
-    const result = resolveDateExpression(iso);
-    expect(result).toEqual({ start: iso, end: iso });
+  it("expands an ISO 8601 date-only string to that whole UTC day", () => {
+    // The WHOOP v2 API returns 404 for date-only start/end query values.
+    const result = resolveDateExpression("2026-01-15");
+    expect(result).toEqual({
+      start: "2026-01-15T00:00:00.000Z",
+      end: "2026-01-15T23:59:59.999Z",
+    });
   });
 
   it("passes through ISO 8601 with timezone offset", () => {
