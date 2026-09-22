@@ -64,8 +64,26 @@ export class WhoopApiError extends Error {
     public readonly statusText: string,
     public readonly body: unknown
   ) {
-    super(`WHOOP API error: ${statusCode} ${statusText}`);
+    super(describeStatus(statusCode, statusText));
   }
+}
+
+/**
+ * Human-readable message that separates WHOOP-side outages from problems the
+ * user can fix, so a transient HTTP 500 does not read as a broken setup.
+ */
+function describeStatus(statusCode: number, statusText: string): string {
+  const suffix = statusText ? ` ${statusText}` : "";
+  if (statusCode >= 500) {
+    return `WHOOP API is temporarily unavailable (HTTP ${statusCode}${suffix}). This is a WHOOP server-side error, not a credentials problem. Try again shortly.`;
+  }
+  if (statusCode === 429) {
+    return "WHOOP API rate limit reached (HTTP 429). Wait a moment and try again.";
+  }
+  if (statusCode === 401) {
+    return "WHOOP API rejected the access token (HTTP 401). Re-authentication may be required.";
+  }
+  return `WHOOP API error: ${statusCode}${suffix}`;
 }
 
 /** Error thrown when a network-level failure prevents reaching the WHOOP API */
@@ -94,7 +112,7 @@ export class WhoopAuthError extends Error {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Maximum number of retries for 429 rate limit responses */
+/** Maximum number of retries for transient failures (429, 5xx, network errors, timeouts) */
 const MAX_RETRIES = 3;
 
 /** Base delay in milliseconds for exponential backoff (1s, 2s, 4s) */
@@ -132,6 +150,20 @@ function parseRetryAfter(response: Response): number | null {
     return null;
   }
   return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+}
+
+/**
+ * Delay before retry `attempt` (1-based). Honors Retry-After when the server
+ * sends it; otherwise exponential backoff (1s, 2s, 4s) with equal jitter so
+ * parallel requests do not retry in lockstep against a recovering server.
+ */
+function backoffDelay(attempt: number, response: Response | undefined): number {
+  const retryAfter = response ? parseRetryAfter(response) : null;
+  if (retryAfter !== null) {
+    return retryAfter;
+  }
+  const base = BASE_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+  return Math.round(base / 2 + Math.random() * (base / 2));
 }
 
 /**
@@ -239,18 +271,28 @@ export function createWhoopClient(options: WhoopClientOptions): WhoopClient {
   async function doGet<T>(path: string): Promise<T> {
     const url = `${baseUrl}${path}`;
     let currentToken = options.accessToken;
-    let lastError: WhoopApiError | undefined;
+    let lastError: Error | undefined;
     let lastResponse: Response | undefined;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       // Wait before retry (not before the first attempt)
-      if (attempt > 0 && lastResponse) {
-        const retryDelay =
-          parseRetryAfter(lastResponse) ?? BASE_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
-        await delay(retryDelay);
+      if (attempt > 0) {
+        await delay(backoffDelay(attempt, lastResponse));
       }
 
-      const response = await doFetch(url, currentToken);
+      let response: Response;
+      try {
+        response = await doFetch(url, currentToken);
+      } catch (networkError: unknown) {
+        // Connection reset, DNS blip or timeout: transient, so retry with backoff.
+        if (networkError instanceof WhoopNetworkError && attempt < MAX_RETRIES) {
+          logger?.warn("whoop api network error, retrying", logExtras({ url, attempt }));
+          lastError = networkError;
+          lastResponse = undefined;
+          continue;
+        }
+        throw networkError;
+      }
 
       if (response.ok) {
         return (await response.json()) as T;
@@ -259,12 +301,13 @@ export function createWhoopClient(options: WhoopClientOptions): WhoopClient {
       const body = await parseErrorBody(response);
       const apiError = new WhoopApiError(response.status, response.statusText, body);
 
-      // Only retry on 429 rate limit
-      if (response.status === 429) {
+      // Retry rate limits and server errors. WHOOP's origin intermittently
+      // returns 5xx while other requests succeed, so a retry usually lands.
+      if (response.status === 429 || response.status >= 500) {
         const retryAfterMs = parseRetryAfter(response);
         logger?.warn(
-          "whoop api rate limited",
-          logExtras({ url, attempt, retryAfterMs: retryAfterMs ?? undefined })
+          response.status === 429 ? "whoop api rate limited" : "whoop api server error",
+          logExtras({ url, attempt, status: response.status, retryAfterMs: retryAfterMs ?? undefined })
         );
         lastError = apiError;
         lastResponse = response;
@@ -274,11 +317,16 @@ export function createWhoopClient(options: WhoopClientOptions): WhoopClient {
       // 401: attempt token refresh once
       if (response.status === 401 && options.onTokenRefresh) {
         let newToken: string;
-        try {
-          newToken = await options.onTokenRefresh();
-          logger?.info("whoop token refreshed", logExtras({ url }));
-        } catch (refreshError: unknown) {
-          throw new WhoopAuthError(refreshError);
+        if (options.accessToken !== currentToken) {
+          // A parallel request already refreshed while this one was in flight.
+          newToken = options.accessToken;
+        } else {
+          try {
+            newToken = await options.onTokenRefresh();
+            logger?.info("whoop token refreshed", logExtras({ url }));
+          } catch (refreshError: unknown) {
+            throw new WhoopAuthError(refreshError);
+          }
         }
 
         // Retry with the new token

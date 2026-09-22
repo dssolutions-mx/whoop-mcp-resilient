@@ -5,7 +5,7 @@
  * Pure I/O module — no dependencies on API client or OAuth flow.
  */
 
-import { mkdir, writeFile, readFile, unlink } from "node:fs/promises";
+import { mkdir, writeFile, readFile, unlink, rename } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -80,10 +80,21 @@ function tokenFilePath(tokenDir?: string): string {
 export async function saveTokens(tokens: OAuthTokens, tokenDir?: string): Promise<void> {
   const dir = tokenDir ?? DEFAULT_TOKEN_DIR;
   await mkdir(dir, { recursive: true, mode: 0o700 });
-  await writeFile(tokenFilePath(tokenDir), JSON.stringify(tokens, null, 2), {
+  // Write to a temp file and rename it into place. rename() is atomic on the
+  // same filesystem, so another server process reading tokens.json never sees
+  // a half-written file.
+  const target = tokenFilePath(tokenDir);
+  const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(temp, JSON.stringify(tokens, null, 2), {
     encoding: "utf-8",
     mode: 0o600,
   });
+  try {
+    await rename(temp, target);
+  } catch (error: unknown) {
+    await unlink(temp).catch(() => undefined);
+    throw error;
+  }
 }
 
 /**

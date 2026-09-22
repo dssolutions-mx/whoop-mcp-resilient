@@ -29,6 +29,7 @@ const mockSaveTokens = vi.fn();
 vi.mock("../src/auth/token-store.js", () => ({
   loadTokens: (...args: unknown[]) => mockLoadTokens(...args),
   saveTokens: (...args: unknown[]) => mockSaveTokens(...args),
+  isTokenExpired: (tokens: { expires_at: number }) => tokens.expires_at <= Date.now(),
 }));
 
 const mockCreateWhoopClient = vi.fn();
@@ -397,6 +398,106 @@ describe("main() entry point", () => {
       expect(mockToOAuthTokens).toHaveBeenCalledWith(refreshResponse, "stored-refresh-token");
       expect(mockSaveTokens).toHaveBeenCalledWith(newTokens);
       expect(newAccessToken).toBe("new-access-token");
+    });
+
+    it("runs a single refresh for concurrent 401s (single-flight)", async () => {
+      setupHappyPath();
+      mockLoadTokens.mockResolvedValue({
+        access_token: "test-access-token",
+        refresh_token: "stored-refresh-token",
+        expires_at: Date.now() - 1000,
+        token_type: "Bearer",
+      });
+      let release!: (value: unknown) => void;
+      mockRefreshAccessToken.mockReturnValue(new Promise((resolve) => (release = resolve)));
+      mockToOAuthTokens.mockReturnValue({
+        access_token: "new-access-token",
+        refresh_token: "new-refresh-token",
+        expires_at: Date.now() + 3_600_000,
+        token_type: "Bearer",
+      });
+      mockSaveTokens.mockResolvedValue(undefined);
+
+      const { main } = await importMain();
+      await main();
+      const { onTokenRefresh } = mockCreateWhoopClient.mock.calls[0][0] as {
+        onTokenRefresh: () => Promise<string>;
+      };
+
+      const first = onTokenRefresh();
+      const second = onTokenRefresh();
+      release({ access_token: "new-access-token", expires_in: 3600, token_type: "Bearer" });
+
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        "new-access-token",
+        "new-access-token",
+      ]);
+      expect(mockRefreshAccessToken).toHaveBeenCalledTimes(1);
+    });
+
+    it("adopts a newer token another process already saved instead of refreshing", async () => {
+      setupHappyPath();
+      mockLoadTokens.mockResolvedValue({
+        access_token: "token-from-other-process",
+        refresh_token: "rotated-refresh-token",
+        expires_at: Date.now() + 3_600_000,
+        token_type: "Bearer",
+      });
+
+      const { main } = await importMain();
+      await main();
+      const { onTokenRefresh } = mockCreateWhoopClient.mock.calls[0][0] as {
+        onTokenRefresh: () => Promise<string>;
+      };
+
+      await expect(onTokenRefresh()).resolves.toBe("token-from-other-process");
+      expect(mockRefreshAccessToken).not.toHaveBeenCalled();
+    });
+
+    it("recovers when another process rotated the refresh token mid-refresh", async () => {
+      setupHappyPath();
+      mockLoadTokens
+        .mockResolvedValueOnce({
+          access_token: "test-access-token",
+          refresh_token: "stale-refresh-token",
+          expires_at: Date.now() - 1000,
+          token_type: "Bearer",
+        })
+        .mockResolvedValueOnce({
+          access_token: "winner-access-token",
+          refresh_token: "winner-refresh-token",
+          expires_at: Date.now() + 3_600_000,
+          token_type: "Bearer",
+        });
+      mockRefreshAccessToken.mockRejectedValue(new Error("invalid_grant"));
+
+      const { main } = await importMain();
+      await main();
+      const { onTokenRefresh } = mockCreateWhoopClient.mock.calls[0][0] as {
+        onTokenRefresh: () => Promise<string>;
+      };
+
+      await expect(onTokenRefresh()).resolves.toBe("winner-access-token");
+    });
+
+    it("rethrows a refresh failure when no other process has rotated the tokens", async () => {
+      setupHappyPath();
+      const stored = {
+        access_token: "test-access-token",
+        refresh_token: "dead-refresh-token",
+        expires_at: Date.now() - 1000,
+        token_type: "Bearer",
+      };
+      mockLoadTokens.mockResolvedValue(stored);
+      mockRefreshAccessToken.mockRejectedValue(new Error("invalid_grant"));
+
+      const { main } = await importMain();
+      await main();
+      const { onTokenRefresh } = mockCreateWhoopClient.mock.calls[0][0] as {
+        onTokenRefresh: () => Promise<string>;
+      };
+
+      await expect(onTokenRefresh()).rejects.toThrow("invalid_grant");
     });
 
     it("throws when no stored tokens are found", async () => {

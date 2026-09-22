@@ -7,6 +7,13 @@ import {
 } from "../../src/api/client.js";
 import type { WhoopClient } from "../../src/api/client.js";
 
+/** Run a client call to completion, fast-forwarding retry backoff timers. */
+async function settle<T>(promise: Promise<T>): Promise<T> {
+  promise.catch(() => {});
+  await vi.runAllTimersAsync();
+  return promise;
+}
+
 // ---------------------------------------------------------------------------
 // Task 4a: WhoopApiError
 // ---------------------------------------------------------------------------
@@ -35,9 +42,27 @@ describe("WhoopApiError", () => {
   });
 
   it("has a human-readable message", () => {
+    const error = new WhoopApiError(403, "Forbidden", null);
+
+    expect(error.message).toBe("WHOOP API error: 403 Forbidden");
+  });
+
+  it("explains 401 as an authorization problem", () => {
     const error = new WhoopApiError(401, "Unauthorized", null);
 
-    expect(error.message).toBe("WHOOP API error: 401 Unauthorized");
+    expect(error.message).toContain("HTTP 401");
+    expect(error.message).toContain("Re-authentication");
+  });
+
+  it("explains 5xx as a WHOOP-side outage, not a credentials problem", () => {
+    const error = new WhoopApiError(500, "", null);
+
+    expect(error.message).toContain("temporarily unavailable (HTTP 500)");
+    expect(error.message).toContain("not a credentials problem");
+  });
+
+  it("explains 429 as a rate limit", () => {
+    expect(new WhoopApiError(429, "Too Many Requests", null).message).toContain("rate limit");
   });
 });
 
@@ -156,6 +181,7 @@ describe("createWhoopClient", () => {
         ok: false,
         status,
         statusText,
+        headers: new Headers(),
         json: () => Promise.resolve(body),
         text: () => Promise.resolve(JSON.stringify(body)),
       } as Response;
@@ -217,21 +243,37 @@ describe("createWhoopClient", () => {
       vi.useRealTimers();
     });
 
-    it("throws WhoopApiError on 500 Internal Server Error", async () => {
+    it("throws WhoopApiError on 500 once retries are exhausted", async () => {
+      vi.useFakeTimers();
       mockFetch.mockResolvedValue(
         mockErrorResponse(500, "Internal Server Error", { error: "unexpected" })
       );
       const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
 
-      await expect(client.get("/v2/recovery")).rejects.toThrow(WhoopApiError);
-
       try {
-        await client.get("/v2/recovery");
+        await settle(client.get("/v2/recovery"));
+        expect.fail("should have thrown");
       } catch (error) {
         const apiError = error as WhoopApiError;
+        expect(apiError).toBeInstanceOf(WhoopApiError);
         expect(apiError.statusCode).toBe(500);
         expect(apiError.statusText).toBe("Internal Server Error");
       }
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+      vi.useRealTimers();
+    });
+
+    it("recovers when an intermittent 500 is followed by success", async () => {
+      vi.useFakeTimers();
+      mockFetch
+        .mockResolvedValueOnce(mockErrorResponse(500, "Internal Server Error", null))
+        .mockResolvedValueOnce(mockErrorResponse(502, "Bad Gateway", null))
+        .mockResolvedValueOnce(mockJsonResponse({ user_id: 1 }));
+      const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
+
+      await expect(settle(client.get("/v2/recovery"))).resolves.toEqual({ user_id: 1 });
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      vi.useRealTimers();
     });
 
     it("includes status code and text in error message", async () => {
@@ -247,20 +289,23 @@ describe("createWhoopClient", () => {
         ok: false,
         status: 503,
         statusText: "Service Unavailable",
+        headers: new Headers(),
         json: () => Promise.reject(new SyntaxError("Unexpected token")),
         text: () => Promise.resolve(htmlBody),
       } as Response;
-      mockFetch.mockResolvedValue(response);
+      vi.useFakeTimers();
+      mockFetch.mockImplementation(() => Promise.resolve({ ...response }));
       const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
 
       try {
-        await client.get("/v2/recovery");
+        await settle(client.get("/v2/recovery"));
         expect.fail("should have thrown");
       } catch (error) {
         const apiError = error as WhoopApiError;
         expect(apiError.statusCode).toBe(503);
         expect(apiError.body).toBe(htmlBody);
       }
+      vi.useRealTimers();
     });
   });
 
@@ -389,13 +434,13 @@ describe("createWhoopClient", () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
-    it("does NOT retry on non-429 errors", async () => {
+    it("does NOT retry on non-transient 4xx errors", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
-        status: 500,
-        statusText: "Internal Server Error",
-        json: () => Promise.resolve({ error: "server_error" }),
-        text: () => Promise.resolve("server error"),
+        status: 404,
+        statusText: "Not Found",
+        json: () => Promise.resolve({ error: "not_found" }),
+        text: () => Promise.resolve("not found"),
       } as unknown as Response);
       const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
 
@@ -403,7 +448,8 @@ describe("createWhoopClient", () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
-    it("uses exponential backoff: 1s, 2s, 4s", async () => {
+    it("uses exponential backoff: 1s, 2s, 4s (at maximum jitter)", async () => {
+      vi.spyOn(Math, "random").mockReturnValue(1);
       mockFetch
         .mockResolvedValueOnce(mock429Response()) // initial call
         .mockResolvedValueOnce(mock429Response()) // retry 1
@@ -438,6 +484,24 @@ describe("createWhoopClient", () => {
       } catch (error) {
         expect(error).toBeInstanceOf(WhoopApiError);
       }
+      vi.mocked(Math.random).mockRestore();
+    });
+
+    it("jitters backoff so parallel retries do not fire in lockstep", async () => {
+      vi.spyOn(Math, "random").mockReturnValue(0);
+      mockFetch
+        .mockResolvedValueOnce(mock429Response())
+        .mockResolvedValueOnce(mockJsonResponse({ user_id: 1 }));
+      const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
+
+      const promise = client.get("/v2/recovery");
+      // Minimum jitter halves the first 1s delay.
+      await vi.advanceTimersByTimeAsync(499);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      await expect(promise).resolves.toEqual({ user_id: 1 });
+      vi.mocked(Math.random).mockRestore();
     });
   });
 
@@ -446,18 +510,44 @@ describe("createWhoopClient", () => {
   // -------------------------------------------------------------------------
 
   describe("get (network errors)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("retries a transient network error and then succeeds", async () => {
+      mockFetch
+        .mockRejectedValueOnce(new TypeError("fetch failed"))
+        .mockResolvedValueOnce(mockJsonResponse({ user_id: 1 }));
+      const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
+
+      await expect(settle(client.get("/v2/recovery"))).resolves.toEqual({ user_id: 1 });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("gives up after the retry budget on a persistent network failure", async () => {
+      mockFetch.mockRejectedValue(new TypeError("fetch failed"));
+      const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
+
+      await expect(settle(client.get("/v2/recovery"))).rejects.toThrow(WhoopNetworkError);
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+
     it("wraps network errors in WhoopNetworkError", async () => {
       mockFetch.mockRejectedValue(new TypeError("fetch failed"));
       const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
 
-      await expect(client.get("/v2/recovery")).rejects.toThrow(WhoopNetworkError);
+      await expect(settle(client.get("/v2/recovery"))).rejects.toThrow(WhoopNetworkError);
     });
 
     it("WhoopNetworkError has a user-friendly message", async () => {
       mockFetch.mockRejectedValue(new TypeError("fetch failed"));
       const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
 
-      await expect(client.get("/v2/recovery")).rejects.toThrow(
+      await expect(settle(client.get("/v2/recovery"))).rejects.toThrow(
         "Network error: Unable to reach the WHOOP API. Check your internet connection."
       );
     });
@@ -468,7 +558,7 @@ describe("createWhoopClient", () => {
       const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
 
       try {
-        await client.get("/v2/recovery");
+        await settle(client.get("/v2/recovery"));
         expect.fail("should have thrown");
       } catch (error) {
         expect(error).toBeInstanceOf(WhoopNetworkError);
@@ -481,7 +571,7 @@ describe("createWhoopClient", () => {
       const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
 
       try {
-        await client.get("/v2/recovery");
+        await settle(client.get("/v2/recovery"));
         expect.fail("should have thrown");
       } catch (error) {
         expect((error as WhoopNetworkError).name).toBe("WhoopNetworkError");
@@ -492,7 +582,7 @@ describe("createWhoopClient", () => {
       mockFetch.mockRejectedValue(new Error("DNS resolution failed"));
       const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
 
-      await expect(client.get("/v2/recovery")).rejects.toThrow(WhoopNetworkError);
+      await expect(settle(client.get("/v2/recovery"))).rejects.toThrow(WhoopNetworkError);
     });
 
     it("does not wrap WhoopApiError as WhoopNetworkError", async () => {
@@ -502,8 +592,8 @@ describe("createWhoopClient", () => {
       mockFetch.mockRejectedValue(apiError);
       const client = createWhoopClient({ accessToken: TEST_TOKEN, baseUrl: TEST_BASE_URL });
 
-      await expect(client.get("/v2/recovery")).rejects.toThrow(WhoopApiError);
-      await expect(client.get("/v2/recovery")).rejects.not.toThrow(WhoopNetworkError);
+      await expect(settle(client.get("/v2/recovery"))).rejects.toThrow(WhoopApiError);
+      await expect(settle(client.get("/v2/recovery"))).rejects.not.toThrow(WhoopNetworkError);
     });
   });
 
@@ -895,7 +985,12 @@ describe("createWhoopClient — logger integration", () => {
   it("logs network/timeout errors at error level", async () => {
     const timeoutErr = new Error("The operation timed out.");
     timeoutErr.name = "TimeoutError";
-    mockFetch.mockRejectedValueOnce(timeoutErr);
+    vi.useFakeTimers();
+    mockFetch.mockRejectedValueOnce(timeoutErr).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ user_id: 1 }),
+    } as unknown as Response);
 
     const client = createWhoopClient({
       accessToken: TEST_TOKEN,
@@ -903,11 +998,16 @@ describe("createWhoopClient — logger integration", () => {
       logger,
     });
 
-    await expect(client.get("/v2/recovery")).rejects.toBeInstanceOf(WhoopNetworkError);
+    await expect(settle(client.get("/v2/recovery"))).resolves.toEqual({ user_id: 1 });
     expect(logger.error).toHaveBeenCalledTimes(1);
     const [msg, extra] = logger.error.mock.calls[0] as [string, Record<string, unknown>];
     expect(msg).toBe("whoop api timeout");
     expect(typeof extra.durationMs).toBe("number");
+    expect(logger.warn).toHaveBeenCalledWith(
+      "whoop api network error, retrying",
+      expect.objectContaining({ attempt: 0 })
+    );
+    vi.useRealTimers();
   });
 
   it("logs at info level when token is refreshed after 401", async () => {

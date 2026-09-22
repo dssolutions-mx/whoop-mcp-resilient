@@ -18,7 +18,7 @@
 
 import { authenticate, refreshAccessToken, toOAuthTokens } from "./auth/oauth.js";
 import type { OAuthConfig } from "./auth/oauth.js";
-import { loadTokens, saveTokens } from "./auth/token-store.js";
+import { isTokenExpired, loadTokens, saveTokens } from "./auth/token-store.js";
 import { createWhoopClient } from "./api/client.js";
 import { MemoryCache } from "./cache/memory-cache.js";
 import { createWhoopServer } from "./server.js";
@@ -126,7 +126,16 @@ export async function main(telemetry?: Telemetry): Promise<void> {
   // and the MCP resources; it is cleared whenever tokens are refreshed.
   const cache = new MemoryCache();
 
-  const onTokenRefresh = async (): Promise<string> => {
+  // WHOOP rotates refresh tokens: each successful refresh invalidates the
+  // previous refresh token. Two refreshes racing on the same token (parallel
+  // 401s in this process, or a second server process sharing tokens.json)
+  // leave the loser with a dead token and every later call failing. So:
+  //   1. at most one refresh runs per process (single-flight), and
+  //   2. before and after refreshing, adopt a newer token already on disk.
+  let currentAccessToken = accessToken;
+  let refreshInFlight: Promise<string> | undefined;
+
+  const refreshTokens = async (): Promise<string> => {
     const tokens = await loadTokens();
     if (!tokens) {
       throw new Error(
@@ -134,14 +143,39 @@ export async function main(telemetry?: Telemetry): Promise<void> {
       );
     }
 
-    const refreshed = await refreshAccessToken(tokens.refresh_token, oauthConfig);
-    const newTokens = toOAuthTokens(refreshed, tokens.refresh_token);
-    await saveTokens(newTokens);
+    // Another process already rotated the tokens: use its fresh access token.
+    if (tokens.access_token !== currentAccessToken && !isTokenExpired(tokens)) {
+      return tokens.access_token;
+    }
 
-    cache.clear();
-    logger.info("whoop token refreshed");
+    try {
+      const refreshed = await refreshAccessToken(tokens.refresh_token, oauthConfig);
+      const newTokens = toOAuthTokens(refreshed, tokens.refresh_token);
+      await saveTokens(newTokens);
+      return newTokens.access_token;
+    } catch (error: unknown) {
+      // Lost a race: another process rotated the refresh token between our
+      // read and our refresh. Its result is on disk, so use that.
+      const latest = await loadTokens();
+      if (latest && latest.refresh_token !== tokens.refresh_token && !isTokenExpired(latest)) {
+        return latest.access_token;
+      }
+      throw error;
+    }
+  };
 
-    return newTokens.access_token;
+  const onTokenRefresh = (): Promise<string> => {
+    refreshInFlight ??= refreshTokens()
+      .then((token) => {
+        currentAccessToken = token;
+        cache.clear();
+        logger.info("whoop token refreshed");
+        return token;
+      })
+      .finally(() => {
+        refreshInFlight = undefined;
+      });
+    return refreshInFlight;
   };
 
   const client = createWhoopClient({ accessToken, onTokenRefresh, logger, cache });
